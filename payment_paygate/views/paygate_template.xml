@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="paygate_form" name="Payage Form">
+        <input type="hidden" name="data_set" t-att-data-action-url="tx_url" data-remove-me=""/>
+        <input type="hidden" name="PAYGATE_ID" t-att-value='PAYGATE_ID' />
+        <input type="hidden" name="PAY_REQUEST_ID" t-att-value='PAY_REQUEST_ID' />
+        <input type="hidden" name="REFERENCE" t-att-value="REFERENCE"/>
+        <input type="hidden" name="CHECKSUM" t-att-value="CHECKSUM"/>
+    </template>
+</odoo>
