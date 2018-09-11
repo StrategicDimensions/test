@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-from odoo import api, models, fields
+from odoo import api, models, fields, _
 from odoo.addons.payment_paygate.controllers.main import payGateController
+from odoo.addons.payment.models.payment_acquirer import ValidationError
+from odoo.tools.float_utils import float_compare
 
 from collections import OrderedDict
 from datetime import datetime
@@ -8,11 +10,24 @@ from hashlib import md5
 import logging
 from urllib.parse import unquote
 from werkzeug import urls
-
 import requests
 
-
 _logger = logging.getLogger(__name__)
+
+
+def calculate_md5(data):
+    checksum = ''
+    key = 'secret'  # Make sure
+    for k, v in data.items():
+        checksum = '%s%s' % (checksum, v)
+    checksum = '%s%s' % (checksum, key)  # add key to checksum value
+    md5_hash = md5(checksum.encode('utf-8')).hexdigest()
+    return md5_hash
+
+def validate_checksum(data):
+    hash_ = data.pop('CHECKSUM')
+    new_hash = calculate_md5(data)
+    return hash_ == new_hash, new_hash
 
 class payGate(models.Model):
     _inherit = 'payment.acquirer'
@@ -63,21 +78,54 @@ class payGate(models.Model):
             key = list_[0]
             value = list_[1]
             dict_[key] = unquote(value)
-        is_equal, dict_['CHECKSUM'] = self.validate_checksum(dict_)
+        is_equal, dict_['CHECKSUM'] = validate_checksum(dict_)
         return is_equal, dict_
 
-    @api.model
-    def calculate_md5(self, data):
-        checksum = ''
-        key = 'secret'  # Make sure
-        for k, v in data.items():
-            checksum = '%s%s' % (checksum, v)
-        checksum = '%s%s' % (checksum, key)  # add key to checksum value
-        md5_hash = md5(checksum.encode('utf-8')).hexdigest()
-        return md5_hash
 
+
+class PaymentTransactionPaygate(models.Model):
+    _inherit = 'payment.transaction'
+    
+    # {'PAYGATE_ID': '10011072130', 
+    # 'PAY_REQUEST_ID': 'D914A230-FE17-389A-38A8-76BA60D20BCD',
+    #  'REFERENCE': 'SO034',
+    #   'TRANSACTION_STATUS': '1', 
+    #   'RESULT_CODE': '990017',
+    #    'AUTH_CODE': '101Q07',
+    #     'CURRENCY': 'ZAR',
+    #      'AMOUNT': '3300', 
+    #      'RESULT_DESC': 'Auth Done', 
+    #      'TRANSACTION_ID': '86840779', 
+    #      'RISK_INDICATOR': 'AX',
+    #       'PAY_METHOD': 'CC', 
+    #       'PAY_METHOD_DETAIL': 'Visa', 
+    #       'CHECKSUM': '50c994315149311edd6c0babb9da3df1'}
     @api.model
-    def validate_checksum(self, data):
-        hash_ = data.pop('CHECKSUM')
-        new_hash = self.calculate_md5(data)
-        return hash_ == new_hash, new_hash
+    def _paygate_form_get_tx_from_data(self, data):
+        ref = data.get('REFERENCE')
+        tx = self.search([('reference', '=', ref)])
+
+        if not tx or len(tx) > 1:
+            error_msg = _('received data for reference %s') % (ref)
+            if not tx:
+                error_msg += _('; no order found')
+            else:
+                error_msg += _('; multiple order found')
+            _logger.info(error_msg)
+            raise ValidationError(error_msg)
+
+        is_valid, _ = validate_checksum(data)
+        if not is_valid:
+            error_msg = _('Transaction has been tempered. wrong checksum')
+            raise ValidationError(error_msg)
+        return tx
+    
+    def _transfer_form_get_invalid_parameters(self, data):
+        invalid_parameters = []
+
+        if data.get('AMOUNT') == self.amount * 100:
+            invalid_parameters.append(('amount', data.get('AMOUNT'), '%.2f' % self.amount))
+        if data.get('CURRENCY') != self.currency_id.name:
+            invalid_parameters.append(('currency', data.get('CURRENCY'), self.currency_id.name))
+
+        return invalid_parameters
