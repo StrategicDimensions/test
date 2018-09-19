@@ -53,14 +53,14 @@ class payGate(models.Model):
         paygate_values['PAYGATE_ID'] = self.paygate_id or '10011072130'
         paygate_values['REFERENCE'] = values['reference']
         paygate_values['AMOUNT'] = int(values['amount'] * 100)
-        paygate_values['CURRENCY'] = 'ZAR'
+        paygate_values['CURRENCY'] = self.env.user.company_id.currency_id.name
         paygate_values['RETURN_URL'] = urls.url_join(base_url, payGateController._return_url)
         paygate_values['TRANSACTION_DATE'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         paygate_values['LOCALE'] = 'en'
         paygate_values['COUNTRY'] = 'ZAF'
         paygate_values['EMAIL'] = values['partner_email']
         paygate_values['NOTIFY_URL'] = urls.url_join(base_url, payGateController._notify_url)
-        paygate_values['CHECKSUM'] = self.calculate_md5(paygate_values)
+        paygate_values['CHECKSUM'] = calculate_md5(paygate_values)
         hash_valid, response_data = self.post_payment(paygate_values)
         # new checksum
         paygate_values['CHECKSUM'] = response_data['CHECKSUM']
@@ -113,19 +113,52 @@ class PaymentTransactionPaygate(models.Model):
                 error_msg += _('; multiple order found')
             _logger.info(error_msg)
             raise ValidationError(error_msg)
-
+        print('dddd', data, tx)
         is_valid, _ = validate_checksum(data)
+        print('si vali', is_valid)
         if not is_valid:
             error_msg = _('Transaction has been tempered. wrong checksum')
             raise ValidationError(error_msg)
         return tx
     
-    def _transfer_form_get_invalid_parameters(self, data):
+    def _paygate_form_get_invalid_parameters(self, data):
         invalid_parameters = []
-
+        print('sss', self.amount, self.env.user.company_id.currency_id.name)
         if data.get('AMOUNT') == self.amount * 100:
             invalid_parameters.append(('amount', data.get('AMOUNT'), '%.2f' % self.amount))
-        if data.get('CURRENCY') != self.currency_id.name:
+        if data.get('CURRENCY') != self.env.user.company_id.currency_id.name:
             invalid_parameters.append(('currency', data.get('CURRENCY'), self.currency_id.name))
 
         return invalid_parameters
+    
+    def _paygate_form_validate(self, data):
+        status_code = data.get('TRANSACTION_STATUS')
+        ref = data.get('TRANSACTION_ID')
+        print('code and ref', type(status_code), ref)
+        if status_code == '1':
+            self.write({
+                'state': 'done',
+                'acquirer_reference': ref,
+            })
+            return True
+        elif status_code == '0':
+            self.write({
+                'state': 'pending',
+                'acquirer_reference': ref,
+            })
+            return True
+        elif status_code in ['2', '3', '4']:
+            self.write({
+                'state': 'cancel',
+                'acquirer_reference': ref,
+            })
+            return True
+        else:
+            error = 'Payget: feedback error'
+            _logger.info(error)
+            self.write({
+                'state': 'error',
+                'state_message': error,
+                'acquirer_reference': ref,
+            })
+            return False
