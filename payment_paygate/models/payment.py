@@ -101,10 +101,11 @@ class PaymentTransactionPaygate(models.Model):
     #       'PAY_METHOD_DETAIL': 'Visa', 
     #       'CHECKSUM': '50c994315149311edd6c0babb9da3df1'}
     @api.model
-    def _paygate_form_get_tx_from_data(self, data):
+    def _paygate_form_get_tx_from_data(self, data=None):
+        if not data:
+            data = {}
         ref = data.get('REFERENCE')
         tx = self.search([('reference', '=', ref)])
-
         if not tx or len(tx) > 1:
             error_msg = _('received data for reference %s') % (ref)
             if not tx:
@@ -113,28 +114,24 @@ class PaymentTransactionPaygate(models.Model):
                 error_msg += _('; multiple order found')
             _logger.info(error_msg)
             raise ValidationError(error_msg)
-        print('dddd', data, tx)
-        is_valid, _ = validate_checksum(data)
-        print('si vali', is_valid)
-        if not is_valid:
-            error_msg = _('Transaction has been tempered. wrong checksum')
-            raise ValidationError(error_msg)
-        return tx
+        if data.get('CHECKSUM'):
+            is_valid, _ = validate_checksum(data)
+            if not is_valid:
+                error_msg = _('Transaction has been tempered. wrong checksum')
+                raise ValidationError(error_msg)
+            return tx
     
     def _paygate_form_get_invalid_parameters(self, data):
         invalid_parameters = []
-        print('sss', self.amount, self.env.user.company_id.currency_id.name)
         if data.get('AMOUNT') == self.amount * 100:
             invalid_parameters.append(('amount', data.get('AMOUNT'), '%.2f' % self.amount))
         if data.get('CURRENCY') != self.env.user.company_id.currency_id.name:
             invalid_parameters.append(('currency', data.get('CURRENCY'), self.currency_id.name))
-
         return invalid_parameters
     
     def _paygate_form_validate(self, data):
         status_code = data.get('TRANSACTION_STATUS')
         ref = data.get('TRANSACTION_ID')
-        print('code and ref', type(status_code), ref)
         if status_code == '1':
             self.write({
                 'state': 'done',

@@ -14,6 +14,7 @@
     'depends': ['payment', 'website_sale'],
     'data': [
         'views/paygate_template.xml',
+        'views/paygate_view.xml',
         'data/payment_acquirer_data.xml',
     ],
 }

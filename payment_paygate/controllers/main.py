@@ -15,10 +15,10 @@ class payGateController(http.Controller):
     @http.route('/payment/paygate/notify', type='http', auth='none', methods=['POST'], csrf=False)
     def paygate_notify(self, *ars, **post):
         status = request.env['payment.transaction'].sudo().form_feedback(post, 'paygate')
-        print('controler status', status)
         if status:
-            return werkzeug.wrappers.Response('OK')
+            return werkzeug.wrappers.Response('ok')
 
     @http.route('/payment/paygate/return_url', type='http', auth="none", methods=['POST'], csrf=False)
     def paygate_return(self, **post):
-        return werkzeug.wrappers.Response('OK')
+        if post.get('TRANSACTION_STATUS') == '1':
+            return werkzeug.utils.redirect('/shop/payment/validate')
